@@ -1,7 +1,11 @@
-name: Build and Deploy GitHub Pages
+
+name: Deploy RoaInstall to GitHub Pages
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -15,55 +19,56 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
 
-      - name: Validate Supabase build settings
+      - name: Validate Supabase configuration
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: |
-          test -n "$VITE_SUPABASE_URL" || (echo "Missing VITE_SUPABASE_URL secret" && exit 1)
-          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || (echo "Missing VITE_SUPABASE_PUBLISHABLE_KEY secret" && exit 1)
-          test "$VITE_SUPABASE_URL" = "https://objlgfczbuiksyyyosvf.supabase.co" || (echo "VITE_SUPABASE_URL does not match the approved Supabase project" && exit 1)
+          test "$VITE_SUPABASE_URL" = "https://objlgfczbuiksyyyosvf.supabase.co"
+          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY"
           case "$VITE_SUPABASE_PUBLISHABLE_KEY" in
             sb_publishable_*) ;;
-            *) echo "VITE_SUPABASE_PUBLISHABLE_KEY must be a publishable key" && exit 1 ;;
+            *) echo "Invalid Supabase publishable key format"; exit 1 ;;
           esac
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run read-only MVP tests
+      - name: Run tests
         run: npm test
 
-      - name: Build site
+      - name: Build production
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: npm run build
 
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: ./dist
 
   deploy:
-    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
