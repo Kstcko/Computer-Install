@@ -1,15 +1,37 @@
+import { getSupabaseClient } from '../src/supabase.js';
+import { MVP_READ_ONLY } from '../src/mvp-mode.js';
+import { AppAuth } from './core/auth.js';
+import { SiteUpdates } from './core/site-updates.js';
+import { TaskStore } from './tasks/task-store.js';
+
+const roleLabels = {
+  admin: 'Admin',
+  developer: 'Developer',
+  technician: 'ช่าง',
+  intern: 'นักศึกษาฝึกงาน'
+};
+const permissionLabels = {
+  'tasks.view': 'ดูรายการงาน',
+  'tasks.create': 'เพิ่มงาน',
+  'tasks.edit': 'แก้ไขงาน',
+  'tasks.delete': 'ลบงาน',
+  'tasks.change_status': 'เปลี่ยนสถานะงาน',
+  'users.view': 'ดูข้อมูลผู้ใช้',
+  'users.create': 'สร้างบัญชี',
+  'users.edit': 'จัดการผู้ใช้และสิทธิ์',
+  'users.delete': 'ลบบัญชี',
+  'tasks.assign': 'มอบหมายงาน',
+  'tasks.restore': 'กู้คืนงาน',
+  'reports.submit': 'ส่ง Install Report',
+  'reports.view': 'ดู Install Report',
+  'notifications.view': 'ดูการแจ้งเตือน',
+  'notifications.manage': 'จัดการการแจ้งเตือน',
+  'site_updates.view': 'ดูประกาศ',
+  'site_updates.manage': 'จัดการประกาศ',
+  'site_updates.files.manage': 'จัดการไฟล์ประกาศ'
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
-  const roleLabels = {
-    admin: 'Admin',
-    accounting: 'แผนกบัญชี',
-    sales: 'แผนกขาย',
-    technician: 'ช่าง',
-    head_technician: 'หัวหน้าช่าง',
-    intern: 'นักศึกษาฝึกงาน',
-    executive: 'ผู้บริหาร',
-    developer: 'Developer'
-  };
-  const editableRoles = ['admin', 'accounting', 'sales', 'technician', 'head_technician', 'intern', 'executive'];
   const staffList = document.getElementById('staffList');
   const staffCount = document.getElementById('staffCount');
   const staffStatus = document.getElementById('staffStatus');
@@ -18,20 +40,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const roleFilter = document.getElementById('roleFilter');
   const permissionRole = document.getElementById('permissionRole');
   const permissionNote = document.getElementById('permissionNote');
+  const permissionOptions = document.querySelector('.st-perm-options');
   const savePermissionsButton = document.getElementById('savePermissionsButton');
   const addEmployeeButton = document.getElementById('openAddEmployee');
-  const addEmployeeDialog = document.getElementById('addEmployeeDialog');
-  const addEmployeeForm = document.getElementById('addEmployeeForm');
-  const addEmployeeError = document.getElementById('addEmployeeError');
-  const cancelAddEmployee = document.getElementById('cancelAddEmployee');
-  const resetPasswordDialog = document.getElementById('resetEmployeePasswordDialog');
-  const resetPasswordForm = document.getElementById('resetEmployeePasswordForm');
-  const resetPasswordEmail = document.getElementById('resetEmployeePasswordEmail');
-  const resetPasswordError = document.getElementById('resetEmployeePasswordError');
-  const cancelResetPassword = document.getElementById('cancelResetEmployeePassword');
-  const permissionPanel = document.getElementById('permissionPanel');
-  const developerVisibilityPanel = document.getElementById('developerVisibilityPanel');
-  const developerVisibilityToggle = document.getElementById('developerVisibilityToggle');
   const siteUpdatePanel = document.getElementById('siteUpdatePanel');
   const siteUpdateFileStatus = document.getElementById('siteUpdateFileStatus');
   const siteUpdateFileList = document.getElementById('siteUpdateFileList');
@@ -39,45 +50,56 @@ document.addEventListener('DOMContentLoaded', async () => {
   const siteUpdateMessage = document.getElementById('siteUpdateMessage');
   const publishSiteUpdateButton = document.getElementById('publishSiteUpdate');
   const refreshSiteChangesButton = document.getElementById('refreshSiteChanges');
-  savePermissionsButton.disabled = true;
-  const permissionInputs = [...document.querySelectorAll('[data-permission]')];
-  const currentUser = AppAuth.getCurrentUser();
-  const canManageRoles = ['admin', 'developer'].includes(currentUser?.role);
-  const canManageRoleAssignments = ['admin', 'developer', 'executive'].includes(currentUser?.role);
-  const canManageEmployees = ['admin', 'developer', 'executive'].includes(currentUser?.role);
   let users = [];
   let permissionsByRole = {};
-  addEmployeeButton.hidden = !canManageEmployees;
-  permissionPanel.hidden = !canManageRoles;
-  developerVisibilityPanel.hidden = currentUser?.role !== 'developer';
-  siteUpdatePanel.hidden = currentUser?.role !== 'developer';
-  document.querySelector('#permissionRole option[value="developer"]').hidden = currentUser?.role !== 'developer';
-  if (currentUser?.role === 'executive') {
-    [...addEmployeeForm.elements.role.options].forEach(option => {
-      option.hidden = option.value !== 'admin';
-    });
-    addEmployeeForm.elements.role.value = 'admin';
-  } else if (currentUser?.role === 'admin') {
-    [...addEmployeeForm.elements.role.options].forEach(option => {
-      option.hidden = !['accounting', 'sales', 'technician', 'head_technician', 'intern'].includes(option.value);
-    });
-    addEmployeeForm.elements.role.value = 'sales';
+
+  try {
+    await AppAuth.initialize();
+  } catch (error) {
+    staffMessage.textContent = error.message || 'ตรวจสอบการเข้าสู่ระบบไม่สำเร็จ';
+    [savePermissionsButton, addEmployeeButton, publishSiteUpdateButton, refreshSiteChangesButton]
+      .forEach(button => { button.disabled = true; });
+    return;
   }
 
-  const request = async (action, data = {}) => {
-    const response = await fetch('api/users.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...data })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      const error = new Error(result.message || 'ดำเนินการไม่สำเร็จ');
-      error.status = response.status;
-      throw error;
-    }
-    return result;
-  };
+  const currentUser = AppAuth.getCurrentUser();
+  if (!currentUser) {
+    window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
+    return;
+  }
+  if (!['admin', 'developer'].includes(currentUser.role)) {
+    staffMessage.textContent = 'หน้านี้จำกัดสิทธิ์สำหรับ Admin และ Developer';
+    return;
+  }
+
+  let currentPermissions;
+  try {
+    currentPermissions = await TaskStore.getPermissions();
+  } catch (error) {
+    staffMessage.textContent = error.message || 'โหลดสิทธิ์ผู้ใช้ไม่สำเร็จ';
+    return;
+  }
+  if (!currentPermissions['users.view'] || !currentPermissions['users.edit']) {
+    staffMessage.textContent = 'Role ของคุณไม่มีสิทธิ์ดูข้อมูลพนักงานและสิทธิ์ของระบบ';
+    return;
+  }
+
+  addEmployeeButton.disabled = true;
+  addEmployeeButton.title = 'ต้องติดตั้ง Edge Function สำหรับจัดการ Supabase Auth Users ก่อน';
+  document.getElementById('addEmployeeDialog').hidden = true;
+  document.getElementById('resetEmployeePasswordDialog').hidden = true;
+  document.getElementById('developerVisibilityPanel').hidden = true;
+  document.getElementById('permissionPanel').hidden = false;
+  siteUpdatePanel.hidden = false;
+  refreshSiteChangesButton.disabled = true;
+  savePermissionsButton.disabled = true;
+  if (MVP_READ_ONLY) {
+    siteUpdateForm.hidden = true;
+    publishSiteUpdateButton.disabled = true;
+    document.getElementById('siteUpdateReadOnlyNotice').hidden = false;
+  }
+  staffMessage.textContent =
+    'แสดงข้อมูลแบบอ่านอย่างเดียว: การสร้าง/ลบบัญชี, เปลี่ยน Role และรหัสผ่านต้องมี Edge Function ที่ยังไม่ได้ติดตั้ง';
 
   const formatDate = value => {
     if (!value) return 'ไม่ระบุ';
@@ -85,150 +107,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     return Number.isNaN(date.getTime()) ? 'ไม่ระบุ' : date.toLocaleDateString('th-TH');
   };
 
-  const loadPendingSiteChanges = async () => {
-    siteUpdateFileStatus.textContent = 'กำลังตรวจไฟล์เว็บไซต์...';
-    siteUpdateFileList.replaceChildren();
-    try {
-      const result = await SiteUpdates.getPendingChanges();
-      if (result.initialized) {
-        siteUpdateFileStatus.textContent = result.message;
-        return;
-      }
-      if (!Array.isArray(result.changes)) {
-        throw new Error('ข้อมูลรายการไฟล์ที่เปลี่ยนแปลงไม่ถูกต้อง');
-      }
-      if (result.changes.length === 0) {
-        siteUpdateFileStatus.textContent = 'ไม่พบไฟล์ที่เปลี่ยนแปลงจากประกาศครั้งล่าสุด';
-        return;
-      }
-
-      siteUpdateFileStatus.textContent = `ตรวจพบการเปลี่ยนแปลง ${result.changes.length} ส่วน`;
-      const actionLabels = { added: 'เพิ่ม', updated: 'ปรับปรุง', removed: 'นำออก' };
-      result.changes.forEach(change => {
-        const item = document.createElement('li');
-        const action = actionLabels[change.action] || 'เปลี่ยนแปลง';
-        const count = Number(change.count) > 1 ? ` (${change.count} ไฟล์)` : '';
-        item.textContent = `${action}: ${change.area}${count}`;
-        siteUpdateFileList.append(item);
-      });
-    } catch (error) {
-      siteUpdateFileStatus.textContent = error.message || 'ตรวจไฟล์เว็บไซต์ไม่สำเร็จ';
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-      }
-    }
-  };
-
-  const addDetail = (container, label, value) => {
-    const detail = document.createElement('div');
-    detail.className = 'staff-detail';
-    const heading = document.createElement('span');
-    heading.textContent = label;
-    detail.append(heading, document.createTextNode(value || 'ไม่ระบุ'));
-    container.append(detail);
-  };
-
-  const createRoleControl = user => {
-    const control = document.createElement('div');
-    control.className = 'staff-role-control';
-    const label = document.createElement('label');
-    label.textContent = 'กำหนด Role';
-    const select = document.createElement('select');
-    select.setAttribute('aria-label', `กำหนด Role ของ ${user.email}`);
-
-    const roles = user.isDeveloper
-      ? ['developer']
-      : currentUser.role === 'admin'
-        ? ['accounting', 'sales', 'technician', 'head_technician', 'intern']
-        : currentUser.role === 'executive'
-          ? ['admin']
-          : editableRoles;
-    const isCurrentUser = user.userId === currentUser?.userId;
-    roles.forEach(role => {
-      const option = document.createElement('option');
-      option.value = role;
-      option.textContent = roleLabels[role];
-      select.append(option);
-    });
-    if (!roles.includes(user.role)) {
-      const option = document.createElement('option');
-      option.value = user.role;
-      option.textContent = roleLabels[user.role] || 'ยังไม่ได้กำหนด';
-      select.prepend(option);
-    }
-    select.value = user.role;
-    select.disabled = user.isDeveloper || isCurrentUser;
-    label.append(select);
-
-    const saveButton = document.createElement('button');
-    saveButton.className = 'btn btn-primary';
-    saveButton.type = 'button';
-    saveButton.textContent = 'บันทึก';
-    saveButton.disabled = user.isDeveloper || isCurrentUser;
-
-    const initialRole = user.role;
-    select.addEventListener('change', () => {
-      saveButton.disabled = user.isDeveloper || isCurrentUser || select.value === initialRole;
-    });
-    saveButton.addEventListener('click', async () => {
-      if (select.value === initialRole) return;
-      if (!await AppDialogs.confirm(`ยืนยันเปลี่ยน Role ของ ${user.email} เป็น ${roleLabels[select.value]} หรือไม่?`, {
-        title: 'ยืนยันแก้ไข Role',
-        confirmText: 'บันทึก Role'
-      })) {
-        select.value = initialRole;
-        saveButton.disabled = true;
-        return;
-      }
-      saveButton.disabled = true;
-      staffMessage.textContent = `กำลังบันทึก Role ของ ${user.email}...`;
-      try {
-        const result = await request('updateRole', { userId: user.userId, role: select.value });
-        staffMessage.textContent = result.message;
-        await loadUsers();
-      } catch (error) {
-        staffMessage.textContent = error.message;
-        saveButton.disabled = user.isDeveloper || isCurrentUser || select.value === initialRole;
-        if (error.status === 401) {
-          AppAuth.logout();
-          window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-        }
-      }
-    });
-
-    control.append(label, saveButton);
-    if (user.isDeveloper || isCurrentUser) {
-      const note = document.createElement('p');
-      note.className = 'staff-developer-note';
-      note.textContent = user.isDeveloper
-        ? 'Role Developer สงวนไว้ให้บัญชีผู้พัฒนาและไม่สามารถเปลี่ยนได้'
-        : 'ไม่สามารถเปลี่ยน Role ของบัญชีตัวเองได้';
-      control.append(note);
-    }
-    return control;
-  };
-
   const renderUsers = () => {
     const query = searchInput.value.trim().toLocaleLowerCase();
     const selectedRole = roleFilter.value;
     const filteredUsers = users.filter(user => {
-      const searchable = [
-        user.firstName,
-        user.lastName,
-        user.email,
-        user.phone
-      ].join(' ').toLocaleLowerCase();
-      return (!query || searchable.includes(query)) && (!selectedRole || user.role === selectedRole);
+      const searchable = [user.firstName, user.lastName, user.email, user.phone]
+        .join(' ')
+        .toLocaleLowerCase();
+      return (!query || searchable.includes(query))
+        && (!selectedRole || user.role === selectedRole);
     });
 
     staffList.replaceChildren();
     staffCount.textContent = String(filteredUsers.length);
-    staffStatus.textContent = filteredUsers.length === users.length
-      ? `จากทั้งหมด ${users.length} บัญชี`
-      : `แสดงจากทั้งหมด ${users.length} บัญชี`;
-
-    if (filteredUsers.length === 0) {
+    staffStatus.textContent = `จากทั้งหมด ${users.length} บัญชี`;
+    if (!filteredUsers.length) {
       const empty = document.createElement('p');
       empty.className = 'staff-empty';
       empty.textContent = 'ไม่พบพนักงานตามเงื่อนไขที่เลือก';
@@ -239,7 +132,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     filteredUsers.forEach(user => {
       const card = document.createElement('article');
       card.className = 'staff-card';
-
       const header = document.createElement('div');
       header.className = 'staff-card-header';
       const identity = document.createElement('div');
@@ -250,318 +142,140 @@ document.addEventListener('DOMContentLoaded', async () => {
       email.className = 'staff-email';
       email.textContent = user.email || 'ไม่ระบุอีเมล';
       identity.append(name, email);
-
       const badge = document.createElement('span');
       badge.className = 'staff-role-badge';
-      badge.textContent = roleLabels[user.role] || 'ยังไม่ได้กำหนด';
+      badge.textContent = roleLabels[user.role] || `Role ไม่อยู่ใน Schema v3.2 (${user.role})`;
       header.append(identity, badge);
 
       const details = document.createElement('div');
       details.className = 'staff-details';
-      addDetail(details, 'เบอร์โทรศัพท์', user.phone);
-      addDetail(details, 'วันที่สมัคร', formatDate(user.createdAt));
-
+      for (const [label, value] of [
+        ['เบอร์โทรศัพท์', user.phone],
+        ['วันที่สร้างบัญชี', formatDate(user.createdAt)],
+        ['สถานะ', user.isActive ? 'ใช้งาน' : 'ปิดใช้งาน']
+      ]) {
+        const detail = document.createElement('div');
+        detail.className = 'staff-detail';
+        const heading = document.createElement('span');
+        heading.textContent = label;
+        detail.append(heading, document.createTextNode(value || 'ไม่ระบุ'));
+        details.append(detail);
+      }
       card.append(header, details);
-      if (canManageRoleAssignments && !user.isDeveloper && user.userId !== currentUser?.userId) {
-        card.append(createRoleControl(user));
-      }
-      if ((canManageEmployees || canManageRoles) && !user.isDeveloper && user.userId !== currentUser?.userId) {
-        const actions = document.createElement('div');
-        actions.className = 'staff-card-actions';
-        if (canManageRoles) {
-          const resetButton = document.createElement('button');
-          resetButton.className = 'staff-reset-password-button';
-          resetButton.type = 'button';
-          resetButton.setAttribute('aria-label', `ตั้งรหัสผ่านใหม่ให้ ${user.email}`);
-          resetButton.innerHTML = '<i class="bi bi-key" aria-hidden="true"></i><span>ตั้งรหัสผ่านใหม่</span>';
-          resetButton.addEventListener('click', () => {
-            resetPasswordForm.reset();
-            resetPasswordError.textContent = '';
-            resetPasswordForm.dataset.userId = user.userId;
-            resetPasswordEmail.textContent = user.email;
-            resetPasswordDialog.hidden = false;
-            resetPasswordForm.elements.password.focus();
-          });
-          actions.append(resetButton);
-        }
-        if (!canManageEmployees) {
-          card.append(actions);
-          staffList.append(card);
-          return;
-        }
-        const deleteButton = document.createElement('button');
-        deleteButton.className = 'staff-delete-button';
-        deleteButton.type = 'button';
-        deleteButton.setAttribute('aria-label', `ลบบัญชี ${user.email}`);
-        deleteButton.innerHTML = '<i class="bi bi-trash3" aria-hidden="true"></i><span>ลบพนักงาน</span>';
-        deleteButton.addEventListener('click', async () => {
-          if (!await AppDialogs.confirm(
-            `ต้องการลบบัญชี ${user.firstName} ${user.lastName} (${user.email}) หรือไม่? ประวัติการเปลี่ยนสถานะจะยังคงอยู่ แต่การแจ้งเตือนของบัญชีนี้จะถูกลบ`,
-            { title: 'ยืนยันลบบัญชีพนักงาน', tone: 'danger', confirmText: 'ลบบัญชี' }
-          )) return;
-
-          deleteButton.disabled = true;
-          staffMessage.textContent = `กำลังลบบัญชี ${user.email}...`;
-          try {
-            const result = await request('deleteEmployee', { userId: user.userId });
-            await loadUsers();
-            staffMessage.textContent = result.message;
-          } catch (error) {
-            staffMessage.textContent = error.message;
-            deleteButton.disabled = false;
-            if (error.status === 401) {
-              AppAuth.logout();
-              window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-            }
-          }
-        });
-        actions.append(deleteButton);
-        card.append(actions);
-      }
       staffList.append(card);
     });
-  };
-
-  const renderPermissionEditor = () => {
-    const role = permissionRole.value;
-    const permissions = permissionsByRole[role];
-    if (!permissions) return;
-
-    const lockedRole = role === 'developer';
-    permissionInputs.forEach(input => {
-      input.checked = permissions[input.dataset.permission] === true;
-      input.disabled = lockedRole || (role === 'admin' && input.dataset.permission === 'tasks.view');
-    });
-    savePermissionsButton.disabled = lockedRole;
-    permissionNote.textContent = lockedRole
-      ? 'Role Developer สงวนสิทธิ์ทั้งหมดไว้และไม่สามารถแก้ไขได้'
-      : role === 'admin'
-        ? 'สิทธิ์ดูรายการงานของ Admin จำเป็นต่อการจัดการระบบ'
-        : '';
-  };
-
-  const loadRolePermissions = async () => {
-    permissionNote.textContent = 'กำลังโหลดสิทธิ์...';
-    try {
-      const result = await request('listRolePermissions');
-      if (!result.permissions || typeof result.permissions !== 'object') {
-        throw new Error('รูปแบบข้อมูลสิทธิ์ไม่ถูกต้อง');
-      }
-      permissionsByRole = result.permissions;
-      renderPermissionEditor();
-    } catch (error) {
-      permissionNote.textContent = error.message;
-      savePermissionsButton.disabled = true;
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-      }
-    }
-  };
-
-  const saveRolePermissions = async () => {
-    const role = permissionRole.value;
-    if (role === 'developer') return;
-
-    const permissions = Object.fromEntries(permissionInputs.map(input => [
-      input.dataset.permission,
-      input.checked
-    ]));
-    if (!await AppDialogs.confirm(`ยืนยันบันทึกการเปลี่ยนแปลงสิทธิ์ของ Role ${roleLabels[role]} หรือไม่?`, {
-      title: 'ยืนยันบันทึกสิทธิ์',
-      confirmText: 'บันทึกสิทธิ์'
-    })) {
-      renderPermissionEditor();
-      permissionNote.textContent = 'ยกเลิกการบันทึกสิทธิ์แล้ว';
-      return;
-    }
-    savePermissionsButton.disabled = true;
-    permissionNote.textContent = 'กำลังบันทึกสิทธิ์...';
-    try {
-      const result = await request('updateRolePermissions', { role, permissions });
-      permissionsByRole[role] = permissions;
-      permissionNote.textContent = result.message;
-    } catch (error) {
-      permissionNote.textContent = error.message;
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-      }
-    } finally {
-      savePermissionsButton.disabled = role === 'developer';
-    }
   };
 
   const loadUsers = async () => {
     staffMessage.textContent = 'กำลังโหลดข้อมูลพนักงาน...';
     staffList.setAttribute('aria-busy', 'true');
     try {
-      const result = await request('listUsers');
-      if (!Array.isArray(result.users)) {
-        throw new Error('รูปแบบข้อมูลพนักงานไม่ถูกต้อง');
-      }
-      users = result.users;
-      if (currentUser?.role === 'developer') {
-        developerVisibilityToggle.checked = result.developerVisibleToAdmins === true;
-      }
-      document.querySelector('#roleFilter option[value="developer"]').hidden =
-        currentUser?.role !== 'developer'
-        && !(currentUser?.role === 'admin' && result.developerVisibleToAdmins === true);
+      const { data, error } = await getSupabaseClient()
+        .from('profiles')
+        .select('id,first_name,last_name,email,phone,role_code,is_active,created_at')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      users = (data || []).map(profile => ({
+        userId: profile.id,
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        email: profile.email,
+        phone: profile.phone,
+        role: profile.role_code,
+        isActive: profile.is_active,
+        createdAt: profile.created_at
+      }));
       renderUsers();
-      staffMessage.textContent = '';
+      staffMessage.textContent =
+        'ข้อมูลบัญชีอ่านได้จาก Supabase; การเปลี่ยนบัญชีต้องพัฒนา Edge Function ก่อน';
     } catch (error) {
       staffList.replaceChildren();
       staffCount.textContent = '0';
       staffStatus.textContent = '';
-      staffMessage.textContent = error.message;
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-      }
+      staffMessage.textContent = error.message || 'โหลดข้อมูลพนักงานไม่สำเร็จ';
     } finally {
       staffList.removeAttribute('aria-busy');
     }
   };
 
-  const closeAddEmployeeDialog = () => {
-    addEmployeeDialog.hidden = true;
-    addEmployeeForm.reset();
-    addEmployeeError.textContent = '';
+  const renderPermissions = () => {
+    const role = permissionRole.value;
+    const permissions = permissionsByRole[role];
+    if (!permissions) return;
+    permissionOptions.replaceChildren();
+    Object.entries(permissionLabels).forEach(([code, label]) => {
+      const wrapper = document.createElement('label');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.dataset.permission = code;
+      checkbox.checked = permissions[code] === true;
+      checkbox.disabled = true;
+      wrapper.append(checkbox, document.createTextNode(label));
+      permissionOptions.append(wrapper);
+    });
+    permissionNote.textContent =
+      'ตารางสิทธิ์เป็นแบบอ่านอย่างเดียว; การแก้ไขต้องมีการอนุมัติและ hardening RLS ในฐานข้อมูล';
   };
 
-  addEmployeeButton.addEventListener('click', () => {
-    addEmployeeError.textContent = '';
-    addEmployeeDialog.hidden = false;
-    addEmployeeForm.elements.firstName.focus();
-  });
-  cancelAddEmployee.addEventListener('click', closeAddEmployeeDialog);
-  addEmployeeDialog.addEventListener('click', event => {
-    if (event.target === addEmployeeDialog) closeAddEmployeeDialog();
-  });
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !addEmployeeDialog.hidden) closeAddEmployeeDialog();
-  });
-  const closeResetPasswordDialog = () => {
-    resetPasswordDialog.hidden = true;
-    resetPasswordForm.reset();
-    delete resetPasswordForm.dataset.userId;
-    resetPasswordError.textContent = '';
+  const loadPermissions = async () => {
+    try {
+      const { data, error } = await getSupabaseClient()
+        .from('role_permissions')
+        .select('role_code,permission_code,is_allowed');
+      if (error) throw error;
+      permissionsByRole = Object.fromEntries(
+        ['admin', 'developer', 'technician', 'intern'].map(role => [
+          role,
+          Object.fromEntries(
+            (data || [])
+              .filter(row => row.role_code === role)
+              .map(row => [row.permission_code, row.is_allowed])
+          )
+        ])
+      );
+      renderPermissions();
+    } catch (error) {
+      permissionNote.textContent = error.message || 'โหลดตารางสิทธิ์ไม่สำเร็จ';
+    }
   };
-  cancelResetPassword.addEventListener('click', closeResetPasswordDialog);
-  resetPasswordDialog.addEventListener('click', event => {
-    if (event.target === resetPasswordDialog) closeResetPasswordDialog();
-  });
-  document.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && !resetPasswordDialog.hidden) closeResetPasswordDialog();
-  });
-  resetPasswordForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    resetPasswordError.textContent = '';
-    const data = new FormData(resetPasswordForm);
-    const password = String(data.get('password') || '');
-    if (password !== String(data.get('confirmPassword') || '')) {
-      resetPasswordError.textContent = 'รหัสผ่านทั้งสองช่องไม่ตรงกัน';
-      return;
-    }
-    const submitButton = resetPasswordForm.querySelector('[type="submit"]');
-    submitButton.disabled = true;
+
+  const loadPendingSiteChanges = async () => {
+    siteUpdateFileList.replaceChildren();
     try {
-      const result = await request('adminResetPassword', {
-        userId: resetPasswordForm.dataset.userId,
-        password
-      });
-      closeResetPasswordDialog();
-      staffMessage.textContent = result.message;
+      await SiteUpdates.getPendingChanges();
     } catch (error) {
-      resetPasswordError.textContent = error.message || 'ตั้งรหัสผ่านใหม่ไม่สำเร็จ';
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-      }
-    } finally {
-      submitButton.disabled = false;
+      siteUpdateFileStatus.textContent = error.message;
     }
-  });
-  addEmployeeForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    addEmployeeError.textContent = '';
-    const submitButton = addEmployeeForm.querySelector('[type="submit"]');
-    const data = new FormData(addEmployeeForm);
-    submitButton.disabled = true;
-    try {
-      const result = await request('createEmployee', {
-        firstName: data.get('firstName'),
-        lastName: data.get('lastName'),
-        email: data.get('email'),
-        phone: data.get('phone'),
-        role: data.get('role'),
-        password: data.get('password')
-      });
-      closeAddEmployeeDialog();
-      staffMessage.textContent = result.message;
-      await loadUsers();
-    } catch (error) {
-      addEmployeeError.textContent = error.message || 'เพิ่มพนักงานไม่สำเร็จ';
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
-      }
-    } finally {
-      submitButton.disabled = false;
-    }
-  });
+  };
 
   searchInput.addEventListener('input', renderUsers);
   roleFilter.addEventListener('change', renderUsers);
-  permissionRole.addEventListener('change', renderPermissionEditor);
-  savePermissionsButton.addEventListener('click', saveRolePermissions);
-  developerVisibilityToggle.addEventListener('change', async () => {
-    const nextValue = developerVisibilityToggle.checked;
-    developerVisibilityToggle.disabled = true;
-    staffMessage.textContent = 'กำลังบันทึกการอนุญาต...';
-    try {
-      const result = await request('setDeveloperVisibility', { visible: nextValue });
-      staffMessage.textContent = result.message;
-      await loadUsers();
-    } catch (error) {
-      developerVisibilityToggle.checked = !nextValue;
-      staffMessage.textContent = error.message || 'บันทึกการอนุญาตไม่สำเร็จ';
-    } finally {
-      developerVisibilityToggle.disabled = false;
-    }
-  });
-  refreshSiteChangesButton.addEventListener('click', loadPendingSiteChanges);
-  siteUpdateForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    siteUpdateMessage.textContent = '';
-    if (!await AppDialogs.confirm(
-      'เมื่อเผยแพร่แล้ว ผู้ใช้งานจะเห็นประกาศนี้ในกระดิ่งแจ้งเตือน',
-      { title: 'ยืนยันเผยแพร่ประกาศ', confirmText: 'เผยแพร่ประกาศ' }
-    )) return;
-
-    publishSiteUpdateButton.disabled = true;
-    try {
-      const data = new FormData(siteUpdateForm);
-      const result = await SiteUpdates.publish({
-        title: data.get('title'),
-        summary: data.get('summary')
-      });
-      siteUpdateForm.reset();
-      siteUpdateMessage.textContent = result.message;
-      await loadPendingSiteChanges();
-    } catch (error) {
-      siteUpdateMessage.textContent = error.message || 'เผยแพร่ประกาศไม่สำเร็จ';
-      if (error.status === 401) {
-        AppAuth.logout();
-        window.location.replace(`Login.html?returnTo=${encodeURIComponent('Staff.html')}`);
+  permissionRole.addEventListener('change', renderPermissions);
+  if (!MVP_READ_ONLY) {
+    refreshSiteChangesButton.addEventListener('click', loadPendingSiteChanges);
+    siteUpdateForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      siteUpdateMessage.textContent = '';
+      publishSiteUpdateButton.disabled = true;
+      try {
+        const formData = new FormData(siteUpdateForm);
+        const result = await SiteUpdates.publish({
+          title: formData.get('title'),
+          summary: formData.get('summary')
+        });
+        siteUpdateForm.reset();
+        siteUpdateMessage.textContent =
+          `${result.message} (ประกาศนี้ไม่มีรายการไฟล์เปลี่ยนแปลง; การสแกนไฟล์ใช้ PHP เดิม)`;
+      } catch (error) {
+        siteUpdateMessage.textContent = error.message || 'เผยแพร่ประกาศไม่สำเร็จ';
+      } finally {
+        publishSiteUpdateButton.disabled = false;
       }
-    } finally {
-      publishSiteUpdateButton.disabled = false;
-    }
-  });
-  await Promise.all([
-    loadUsers(),
-    canManageRoles ? loadRolePermissions() : Promise.resolve(),
-    currentUser?.role === 'developer' ? loadPendingSiteChanges() : Promise.resolve()
-  ]);
+    });
+  }
+
+  permissionRole.value = currentUser.role;
+  siteUpdateFileStatus.textContent =
+    'การตรวจไฟล์เปลี่ยนแปลงเดิมต้องใช้ PHP อ่าน filesystem; ใช้ไม่ได้บน GitHub Pages';
+  await Promise.all([loadUsers(), loadPermissions()]);
 });

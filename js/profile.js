@@ -1,13 +1,14 @@
+import { getSupabaseClient } from '../src/supabase.js';
+import { MVP_READ_ONLY } from '../src/mvp-mode.js';
+import { AppAuth } from './core/auth.js';
+import { AppDialogs } from './core/dialogs.js';
+
 document.addEventListener('DOMContentLoaded', async () => {
   const roleLabels = {
     admin: 'Admin',
-    accounting: 'แผนกบัญชี',
-    sales: 'แผนกขาย',
+    developer: 'Developer',
     technician: 'ช่าง',
-    head_technician: 'หัวหน้าช่าง',
-    intern: 'นักศึกษาฝึกงาน',
-    executive: 'ผู้บริหาร',
-    developer: 'Developer'
+    intern: 'นักศึกษาฝึกงาน'
   };
   const profileInfo = document.getElementById('profileInfo');
   const profileMessage = document.getElementById('profileMessage');
@@ -18,22 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const profilePhotoControl = document.getElementById('profilePhotoControl');
   const imageInput = document.getElementById('profileImageInput');
   const staffManagementLink = document.getElementById('staffManagementLink');
-  let currentUser = AppAuth.getCurrentUser();
-
-  const request = async (action, data = {}) => {
-    const response = await fetch('api/users.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...data })
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      const error = new Error(result.message || 'ดำเนินการไม่สำเร็จ');
-      error.status = response.status;
-      throw error;
-    }
-    return result;
-  };
+  let currentUser = null;
 
   const showSignedOut = message => {
     profileMessage.textContent = message;
@@ -47,16 +33,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const updateAvatarStyle = style => {
-    const photoControl = document.getElementById('profilePhotoControl');
-    photoControl.classList.remove('p-round', 'p-frame');
-    if (style === 'rounded') photoControl.classList.add('p-round');
-    if (style === 'frame') photoControl.classList.add('p-frame');
+    profilePhotoControl.classList.remove('p-round', 'p-frame');
+    if (style === 'rounded') profilePhotoControl.classList.add('p-round');
+    if (style === 'frame') profilePhotoControl.classList.add('p-frame');
   };
 
   const displayUser = user => {
     currentUser = user;
-    AppAuth.setCurrentUser(user);
-
     const fullName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'ผู้ใช้งาน';
     document.getElementById('profileName').textContent = fullName;
     document.getElementById('profileEmail').textContent = user.email || '-';
@@ -70,11 +53,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     profileMessage.classList.remove('p-login');
     profileInfo.hidden = false;
     profilePhotoControl.hidden = false;
-    imageInput.hidden = false;
     loginButton.hidden = true;
     logoutButton.hidden = false;
     editProfileButton.hidden = false;
-    staffManagementLink.hidden = !['admin', 'developer', 'executive'].includes(user.role);
+    staffManagementLink.hidden = !['admin', 'developer'].includes(user.role);
   };
 
   const setProfileFormValues = () => {
@@ -82,115 +64,80 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('lastNameInput').value = currentUser.lastName || '';
   };
 
+  try {
+    await AppAuth.initialize();
+    currentUser = AppAuth.getCurrentUser();
+  } catch (error) {
+    showSignedOut(error.message || 'โหลดข้อมูลบัญชีไม่สำเร็จ');
+    return;
+  }
+
   if (!currentUser) {
     showSignedOut('กรุณาเข้าสู่ระบบเพื่อดูโปรไฟล์');
     return;
   }
 
-  try {
-    const result = await request('currentUser');
-    displayUser(result.user);
-  } catch (error) {
-    if (error.message === 'กรุณาเข้าสู่ระบบใหม่') {
-      AppAuth.logout();
-      showSignedOut(error.message);
-      return;
-    }
-    showSignedOut(error.message);
-    return;
-  }
+  displayUser(currentUser);
+  profilePhotoControl.removeAttribute('for');
+  profilePhotoControl.querySelector('.p-photo-btn')?.setAttribute('hidden', '');
+  imageInput.hidden = true;
 
-  editProfileButton.addEventListener('click', () => {
-    setProfileFormValues();
-    profileForm.hidden = false;
-    editProfileButton.hidden = true;
-    document.getElementById('firstNameInput').focus();
-  });
-
-  document.getElementById('cancelProfileButton').addEventListener('click', () => {
-    profileForm.hidden = true;
-    editProfileButton.hidden = false;
-  });
-
-  profileForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    if (!profileForm.reportValidity()) return;
-    if (!await AppDialogs.confirm('ยืนยันบันทึกการเปลี่ยนแปลงชื่อและนามสกุลหรือไม่?', {
-      title: 'บันทึกข้อมูลโปรไฟล์',
-      confirmText: 'บันทึก'
-    })) return;
-
-    const submitButton = document.getElementById('saveProfileButton');
-    submitButton.disabled = true;
-    profileMessage.textContent = 'กำลังบันทึกชื่อ...';
-    try {
-      const result = await request('updateProfile', {
-        firstName: document.getElementById('firstNameInput').value,
-        lastName: document.getElementById('lastNameInput').value
-      });
-      displayUser(result.user);
-      profileForm.hidden = true;
-      profileMessage.textContent = result.message;
-    } catch (error) {
-      profileMessage.textContent = error.message;
-    } finally {
-      submitButton.disabled = false;
-    }
-  });
-
-  const saveAvatar = async avatar => {
-    const avatarStyle = currentUser.avatarStyle || 'circle';
-    const result = await request('updateAvatar', { avatar, avatarStyle });
-    displayUser(result.user);
-    profileMessage.textContent = result.message;
-  };
-
-  document.getElementById('profileImageInput').addEventListener('change', async event => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
-      profileMessage.textContent = 'รองรับไฟล์ PNG, JPG, WEBP หรือ GIF';
-      event.target.value = '';
-      return;
-    }
-    if (file.size > 2 * 1024 * 1024) {
-      profileMessage.textContent = 'รูปภาพต้องมีขนาดไม่เกิน 2 MB';
-      event.target.value = '';
-      return;
-    }
-    if (!await AppDialogs.confirm('ยืนยันเปลี่ยนรูปโปรไฟล์หรือไม่?', {
-      title: 'เปลี่ยนรูปโปรไฟล์',
-      confirmText: 'เปลี่ยนรูป'
-    })) {
-      event.target.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.addEventListener('error', () => {
-      profileMessage.textContent = 'อ่านไฟล์รูปภาพไม่สำเร็จ';
+  if (!MVP_READ_ONLY) {
+    editProfileButton.addEventListener('click', () => {
+      setProfileFormValues();
+      profileForm.hidden = false;
+      editProfileButton.hidden = true;
+      document.getElementById('firstNameInput').focus();
     });
-    reader.addEventListener('load', async () => {
-      profileMessage.textContent = 'กำลังบันทึกรูป...';
+
+    document.getElementById('cancelProfileButton').addEventListener('click', () => {
+      profileForm.hidden = true;
+      editProfileButton.hidden = false;
+    });
+
+    profileForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!profileForm.reportValidity()) return;
+      if (!await AppDialogs.confirm('ยืนยันบันทึกการเปลี่ยนแปลงชื่อและนามสกุลหรือไม่?', {
+        title: 'บันทึกข้อมูลโปรไฟล์',
+        confirmText: 'บันทึก'
+      })) return;
+
+      const submitButton = document.getElementById('saveProfileButton');
+      submitButton.disabled = true;
+      profileMessage.textContent = 'กำลังบันทึกชื่อ...';
       try {
-        await saveAvatar(String(reader.result));
+        const { error } = await getSupabaseClient()
+          .from('profiles')
+          .update({
+            first_name: document.getElementById('firstNameInput').value.trim(),
+            last_name: document.getElementById('lastNameInput').value.trim()
+          })
+          .eq('id', currentUser.userId);
+        if (error) throw error;
+
+        const updatedUser = await AppAuth.refreshCurrentUser();
+        if (!updatedUser) throw new Error('โหลดข้อมูล Profile หลังบันทึกไม่สำเร็จ');
+        displayUser(updatedUser);
+        profileForm.hidden = true;
+        profileMessage.textContent = 'บันทึกข้อมูลโปรไฟล์แล้ว';
       } catch (error) {
-        profileMessage.textContent = error.message;
+        profileMessage.textContent = error.message || 'บันทึกข้อมูลโปรไฟล์ไม่สำเร็จ';
+      } finally {
+        submitButton.disabled = false;
       }
     });
-    reader.readAsDataURL(file);
-    event.target.value = '';
-  });
+  } else {
+    editProfileButton.disabled = true;
+  }
 
   logoutButton.addEventListener('click', async () => {
     logoutButton.disabled = true;
     try {
-      await request('logout');
-      AppAuth.logout();
-      window.location.reload();
+      await AppAuth.logout();
+      window.location.replace('Login.html');
     } catch (error) {
-      profileMessage.textContent = error.message;
+      profileMessage.textContent = error.message || 'ออกจากระบบไม่สำเร็จ';
       logoutButton.disabled = false;
     }
   });

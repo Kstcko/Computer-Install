@@ -19,10 +19,10 @@
         <a class="st-back" href="Profile.html"><i class="bi bi-arrow-left"></i> กลับหน้าโปรไฟล์</a>
         <p class="st-eyebrow">INSTALL · ADMINISTRATION</p>
         <h1>ข้อมูลพนักงาน</h1>
-        <p class="st-sub">ค้นหาข้อมูลพนักงานและจัดการบัญชีตามสิทธิ์ของคุณ</p>
+        <p class="st-sub">ดูข้อมูลพนักงานและสิทธิ์ตาม Schema v3.2</p>
       </div>
       <div class="st-actions">
-        <button id="openAddEmployee" class="btn btn-primary" type="button"><i class="bi bi-person-plus"></i> เพิ่มพนักงาน</button>
+        <button id="openAddEmployee" class="btn btn-primary" type="button" disabled><i class="bi bi-person-plus"></i> เพิ่มพนักงาน (ปิดใน MVP)</button>
         <a class="btn light-button" href="Profile.html"><i class="bi bi-person-circle"></i> โปรไฟล์</a>
       </div>
     </header>
@@ -37,13 +37,9 @@
         <select id="roleFilter">
           <option value="">ทุก Role</option>
           <option value="admin">Admin</option>
-          <option value="accounting">แผนกบัญชี</option>
-          <option value="sales">แผนกขาย</option>
           <option value="technician">ช่าง</option>
-          <option value="head_technician">หัวหน้าช่าง</option>
           <option value="intern">นักศึกษาฝึกงาน</option>
-          <option value="executive">ผู้บริหาร</option>
-          <option value="developer" hidden>Developer</option>
+          <option value="developer">Developer</option>
         </select>
       </label>
     </section>
@@ -52,19 +48,15 @@
       <div class="st-perm-head">
         <div>
           <h2 id="permissionTitle">สิทธิ์การใช้งานตาม Role</h2>
-          <p>กำหนดสิทธิ์ในการดู เพิ่ม แก้ไข ลบ และเปลี่ยนสถานะงาน</p>
+          <p>ตรวจสอบสิทธิ์ทั้ง 18 รายการแบบอ่านอย่างเดียว</p>
         </div>
         <label class="st-filter" for="permissionRole">
           <span>เลือก Role</span>
           <select id="permissionRole">
             <option value="admin">Admin</option>
-            <option value="accounting">แผนกบัญชี</option>
-            <option value="sales">แผนกขาย</option>
             <option value="technician">ช่าง</option>
-            <option value="head_technician">หัวหน้าช่าง</option>
             <option value="intern">นักศึกษาฝึกงาน</option>
-            <option value="executive">ผู้บริหาร</option>
-            <option value="developer" hidden>Developer</option>
+            <option value="developer">Developer</option>
           </select>
         </label>
       </div>
@@ -77,7 +69,7 @@
       </div>
       <div class="st-perm-actions">
         <p id="permissionNote" role="status" aria-live="polite"></p>
-        <button id="savePermissionsButton" class="btn btn-primary" type="button">บันทึกสิทธิ์</button>
+        <button id="savePermissionsButton" class="btn btn-primary" type="button" disabled>บันทึกสิทธิ์ (ปิดใน MVP)</button>
       </div>
     </section>
 
@@ -96,13 +88,14 @@
       <div class="st-release-head">
         <div>
           <h2 id="siteUpdateTitle">ประกาศอัปเดตเว็บไซต์</h2>
-          <p>ระบบตรวจไฟล์เว็บไซต์ที่เพิ่ม แก้ไข หรือลบตั้งแต่ประกาศครั้งล่าสุด โปรดสรุปการเปลี่ยนแปลงก่อนเผยแพร่</p>
+          <p>เผยแพร่ข้อความประกาศได้ ส่วนการตรวจไฟล์เว็บไซต์ต้องใช้ PHP อ่าน filesystem และยังไม่รองรับบน GitHub Pages</p>
         </div>
         <button id="refreshSiteChanges" class="btn light-button" type="button">ตรวจไฟล์อีกครั้ง</button>
       </div>
       <p id="siteUpdateFileStatus" class="st-release-status" role="status" aria-live="polite"></p>
       <ul id="siteUpdateFileList" class="st-release-list"></ul>
-      <form id="siteUpdateForm" class="st-release-form">
+      <p id="siteUpdateReadOnlyNotice" class="st-release-message" role="status">การเผยแพร่ประกาศและจัดการไฟล์ปิดใช้งานใน Read-only MVP</p>
+      <form id="siteUpdateForm" class="st-release-form" hidden>
         <label>หัวข้อประกาศ
           <input id="siteUpdateHeading" name="title" type="text" maxlength="120" placeholder="เช่น ปรับปรุงหน้าจัดการงาน" required>
         </label>
@@ -110,7 +103,7 @@
           <textarea id="siteUpdateSummary" name="summary" maxlength="500" rows="3" placeholder="อธิบายให้ผู้ใช้งานทราบว่ามีการปรับปรุงอะไร" required></textarea>
         </label>
         <p id="siteUpdateMessage" class="st-release-message" role="status" aria-live="polite"></p>
-        <button id="publishSiteUpdate" class="btn btn-primary" type="submit">เผยแพร่ประกาศ</button>
+        <button id="publishSiteUpdate" class="btn btn-primary" type="submit" disabled>เผยแพร่ประกาศ (ปิดใน MVP)</button>
       </form>
     </section>
 
@@ -147,13 +140,10 @@
       </label>
       <label>Role
         <select name="role" required>
-          <option value="sales">แผนกขาย</option>
-          <option value="accounting">แผนกบัญชี</option>
           <option value="technician">ช่าง</option>
-          <option value="head_technician">หัวหน้าช่าง</option>
           <option value="intern">นักศึกษาฝึกงาน</option>
-          <option value="executive">ผู้บริหาร</option>
           <option value="admin">Admin</option>
+          <option value="developer">Developer</option>
         </select>
       </label>
       <label>รหัสผ่านเริ่มต้น
@@ -190,10 +180,6 @@
     </form>
   </div>
 
-  <script src="js/core/storage.js"></script>
-  <script src="js/core/auth.js"></script>
-  <script src="js/core/dialogs.js?v=20261013-1"></script>
-  <script src="js/core/site-updates.js?v=20261123-1"></script>
-  <script src="js/staff.js?v=20261123-1"></script>
+  <script type="module" src="js/staff.js"></script>
 </body>
 </html>

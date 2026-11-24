@@ -30,7 +30,7 @@
       <section class="p-section p-personal">
         <div class="p-heading">
           <h2>ข้อมูลส่วนตัว</h2>
-          <button id="editProfileButton" class="btn light-button" type="button">แก้ไขชื่อ</button>
+          <button id="editProfileButton" class="btn light-button" type="button" disabled title="ปิดการแก้ไขข้อมูลใน Read-only MVP">แก้ไขชื่อ (ปิดใน MVP)</button>
         </div>
         <div class="p-item"><strong>ชื่อ</strong><span id="profileName">-</span></div>
         <form id="profileForm" class="p-form" hidden>
@@ -53,7 +53,7 @@
         <h2>ข้อมูลติดต่อ</h2>
         <div class="p-item"><strong>อีเมล</strong><span id="profileEmail">-</span></div>
         <div class="p-item"><strong>เบอร์โทรศัพท์</strong><span id="profilePhone">-</span></div>
-        <p class="p-note"><i class="bi bi-shield-lock"></i> ปิดการแก้ไขชั่วคราว จนกว่าจะเชื่อมต่อระบบยืนยัน OTP</p>
+        <p class="p-note"><i class="bi bi-shield-lock"></i> การแก้ไขเบอร์โทรและรูปโปรไฟล์ยังไม่พร้อม: Schema v3.2 ไม่มี Storage Bucket สำหรับรูปโปรไฟล์</p>
       </section>
 
       <section class="p-section p-access">
@@ -76,9 +76,6 @@
     </div>
   </main>
 
-  <script src="js/core/storage.js"></script>
-  <script src="js/core/auth.js"></script>
-  <script src="js/core/dialogs.js?v=20261013-1"></script>
-  <script src="js/profile.js?v=20261121-8"></script>
+  <script type="module" src="js/profile.js"></script>
 </body>
 </html>

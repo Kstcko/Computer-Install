@@ -131,6 +131,7 @@
   color: #98a2b3;
   background: #fff;
   font-size: 1rem;
+  text-decoration: none;
   transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease;
 }
 
@@ -535,6 +536,18 @@
 
 .s-trash-view {
   margin-top: 1.25rem;
+}
+
+.s-archived-installs {
+  margin-top: 1rem;
+}
+
+.s-archived-installs h2 {
+  margin: 0;
+  padding: .8rem 1rem;
+  border-bottom: 1px solid #e5e9f0;
+  color: var(--n-navy);
+  font-size: .95rem;
 }
 
 .s-trash-head {

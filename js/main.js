@@ -1,21 +1,58 @@
+import { AppAuth } from './core/auth.js';
+import { AppDialogs } from './core/dialogs.js';
+import { SiteUpdates } from './core/site-updates.js';
+import { TaskStore } from './tasks/task-store.js';
+import { initializeWorkManagement } from './tasks/work-management-ui.js';
+import { MVP_READ_ONLY, MVP_READ_ONLY_MESSAGE } from '../src/mvp-mode.js';
+
 /* =====================================================
    NEXORA — UI Interactions (Vanilla JS)
    ===================================================== */
 
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
 
-  if (!AppAuth.requireProtectedPage()) return;
-
+  try {
+    if (!await AppAuth.requireProtectedPage()) return;
+  } catch (error) {
+    const notice = document.createElement('p');
+    notice.className = 'supabase-config-error';
+    notice.setAttribute('role', 'alert');
+    notice.textContent = error.message || 'ตรวจสอบการตั้งค่า Supabase ไม่สำเร็จ';
+    document.body.prepend(notice);
+    document.querySelectorAll(
+      '#taskSearchInput, #taskSearchForm button, #alertButton, #markAllNotificationsRead, #sortFilter, #exportReport, form button[type="submit"]'
+    ).forEach(control => { control.disabled = true; });
+    const addTaskButton = document.querySelector('.s-tools .s-add');
+    if (addTaskButton) addTaskButton.hidden = true;
+    const systemStatus = document.querySelector('.s-system-alert');
+    if (systemStatus) {
+      systemStatus.textContent = 'ยังไม่เชื่อมต่อ Supabase';
+    }
+    const taskList = document.getElementById('taskList');
+    if (taskList) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 11;
+      cell.textContent = error.message || 'ยังโหลดรายการงานไม่ได้';
+      row.append(cell);
+      taskList.replaceChildren(row);
+    }
+    const taskSummary = document.getElementById('taskSummary');
+    if (taskSummary) taskSummary.textContent = 'ยังไม่ได้โหลดข้อมูล';
+    document.querySelectorAll('.s-stat strong, .s-stat .s-change, .s-menu .count')
+      .forEach(element => { element.textContent = '—'; });
+    ['reportStatus', 'reportDepartment', 'reportTechnician'].forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = 'ยังโหลดข้อมูลไม่ได้';
+    });
+    return;
+  }
   const setupAccount = () => {
     const roleLabels = {
       admin: 'Admin',
-      accounting: 'แผนกบัญชี',
-      sales: 'แผนกขาย',
+      developer: 'Developer',
       technician: 'ช่าง',
-      head_technician: 'หัวหน้าช่าง',
-      intern: 'นักศึกษาฝึกงาน',
-      executive: 'ผู้บริหาร',
-      developer: 'Developer'
+      intern: 'นักศึกษาฝึกงาน'
     };
     const accountName = document.getElementById('accountName');
     const accountRole = document.getElementById('accountRole');
@@ -236,8 +273,15 @@ document.addEventListener('DOMContentLoaded', function () {
   };
 
   const statusOrder = ['waiting', 'progress', 'done'];
-  const statusOptions = currentStatus => Object.entries(statusNames)
-    .filter(([value]) => statusOrder.indexOf(value) >= statusOrder.indexOf(currentStatus))
+  const statusOptions = currentStatus => (MVP_READ_ONLY
+    ? [[currentStatus, statusNames[currentStatus] || statusNames.waiting]]
+    : Object.entries(statusNames)
+      .filter(([value]) => statusOrder.indexOf(value) >= statusOrder.indexOf(currentStatus))
+      .filter(([value]) => !(
+        currentStatus === 'progress'
+        && value === 'done'
+        && !TaskStore.supportsReauthForDone
+      )))
     .map(([value, label]) => `<option value="${value}" ${value === currentStatus ? 'selected' : ''}>${label}</option>`)
     .join('');
 
@@ -287,9 +331,9 @@ document.addEventListener('DOMContentLoaded', function () {
       }
 
       notifications.forEach(notification => {
-        const item = document.createElement('button');
+        const item = document.createElement(MVP_READ_ONLY ? 'div' : 'button');
         item.className = 's-notify-item';
-        item.type = 'button';
+        if (!MVP_READ_ONLY) item.type = 'button';
         item.classList.toggle('unread', !notification.isRead);
         if (notification.source === 'site-update') {
           item.dataset.siteUpdateId = notification.id;
@@ -408,6 +452,7 @@ document.addEventListener('DOMContentLoaded', function () {
   };
 
   const setupBulkEdit = () => {
+    if (MVP_READ_ONLY) return;
     const dialog = document.getElementById('bulkEditDialog');
     const form = document.getElementById('bulkEditForm');
     const rows = document.getElementById('bulkEditRows');
@@ -420,7 +465,8 @@ document.addEventListener('DOMContentLoaded', function () {
     const closeButton = document.getElementById('closeBulkEdit');
     const taskList = document.getElementById('taskList');
     if (!dialog || !form || !rows || !errorMessage || !selectionActions || !openButton
-      || !deleteButton || !clearButton || !cancelButton || !closeButton || !taskList) return;
+      || !deleteButton || !clearButton || !cancelButton || !closeButton || !taskList
+      || !TaskStore.supportsBulkOperations) return;
 
     const toggleTaskSelection = id => {
       if (selectedTaskIds.has(id)) {
@@ -469,9 +515,7 @@ document.addEventListener('DOMContentLoaded', function () {
         options.push(`<option value="legacy" selected>${escapeText(currentName)} (เดิม)</option>`);
       }
       options.push(...users.map(user => {
-        const roleLabel = user.role === 'head_technician'
-          ? ' (หัวหน้าช่าง)'
-          : user.role === 'intern' ? ' (นักศึกษาฝึกงาน)' : '';
+        const roleLabel = user.role === 'intern' ? ' (นักศึกษาฝึกงาน)' : '';
         return `<option value="${escapeText(user.id)}" ${selected?.id === user.id ? 'selected' : ''}>${escapeText(user.name)}${roleLabel}</option>`;
       }));
       return options.join('');
@@ -654,42 +698,49 @@ document.addEventListener('DOMContentLoaded', function () {
       taskPage = 1;
       showTasks();
     });
+    if (markAllButton && MVP_READ_ONLY) {
+      markAllButton.disabled = true;
+      markAllButton.title = MVP_READ_ONLY_MESSAGE;
+      markAllButton.textContent = 'อ่านทั้งหมด (ปิดใน MVP)';
+    }
     alertButton?.addEventListener('click', () => {
       if (alertPanel) {
         alertPanel.hidden = !alertPanel.hidden;
         if (!alertPanel.hidden) loadNotifications();
       }
     });
-    markAllButton?.addEventListener('click', async () => {
-      markAllButton.disabled = true;
-      try {
-        await Promise.all([
-          TaskStore.markNotificationsRead(),
-          SiteUpdates.markAllRead()
-        ]);
-        await loadNotifications();
-      } catch (error) {
-        showTaskError(error);
-      } finally {
-        markAllButton.disabled = false;
-      }
-    });
-    document.getElementById('notificationList')?.addEventListener('click', async event => {
-      const item = event.target.closest('[data-notification-id], [data-site-update-id]');
-      if (!item || item.classList.contains('unread') === false) return;
-      item.disabled = true;
-      try {
-        if (item.dataset.siteUpdateId) {
-          await SiteUpdates.markRead(item.dataset.siteUpdateId);
-        } else {
-          await TaskStore.markNotificationsRead(item.dataset.notificationId);
+    if (!MVP_READ_ONLY) {
+      markAllButton?.addEventListener('click', async () => {
+        markAllButton.disabled = true;
+        try {
+          await Promise.all([
+            TaskStore.markNotificationsRead(),
+            SiteUpdates.markAllRead()
+          ]);
+          await loadNotifications();
+        } catch (error) {
+          showTaskError(error);
+        } finally {
+          markAllButton.disabled = false;
         }
-        await loadNotifications();
-      } catch (error) {
-        showTaskError(error);
-        item.disabled = false;
-      }
-    });
+      });
+      document.getElementById('notificationList')?.addEventListener('click', async event => {
+        const item = event.target.closest('[data-notification-id], [data-site-update-id]');
+        if (!item || item.classList.contains('unread') === false) return;
+        item.disabled = true;
+        try {
+          if (item.dataset.siteUpdateId) {
+            await SiteUpdates.markRead(item.dataset.siteUpdateId);
+          } else {
+            await TaskStore.markNotificationsRead(item.dataset.notificationId);
+          }
+          await loadNotifications();
+        } catch (error) {
+          showTaskError(error);
+          item.disabled = false;
+        }
+      });
+    }
     exportButton?.addEventListener('click', exportReport);
 
   };
@@ -784,7 +835,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!list) return;
 
     try {
-      const tasks = await TaskStore.getTrash();
+      const { items: tasks, installs } = await TaskStore.getTrash();
       list.innerHTML = tasks.length
         ? tasks.map(task => `
             <tr>
@@ -793,18 +844,39 @@ document.addEventListener('DOMContentLoaded', function () {
               <td>${escapeText(task.detail || '-')}</td>
               <td>${escapeText(formatTrashDate(task.deletedAt))}</td>
               <td>${escapeText(formatTrashDate(task.expiresAt))}</td>
-              <td><button class="s-restore" type="button" data-restore-task="${escapeText(task.id)}"><i class="bi bi-arrow-counterclockwise"></i> กู้คืน</button></td>
+              <td>${TaskStore.hasPermission('tasks.restore')
+                ? `<button class="s-restore" type="button" data-restore-task="${escapeText(task.id)}"><i class="bi bi-arrow-counterclockwise"></i> กู้คืน</button>`
+                : '-'}</td>
             </tr>
           `).join('')
         : '<tr><td colspan="6" class="s-trash-empty">ไม่มีงานในถังขยะ</td></tr>';
-      if (summary) summary.textContent = `มีงานในถังขยะ ${tasks.length} รายการ • ลบถาวรอัตโนมัติเมื่อครบ 30 วัน`;
+      if (summary) summary.textContent = `มีรายการงานที่ลบแบบ Soft Delete ${tasks.length} รายการ`;
+      const installList = document.getElementById('trashInstallList');
+      const installSummary = document.getElementById('trashInstallSummary');
+      if (installList) {
+        installList.innerHTML = installs.length
+          ? installs.map(install => `
+              <tr>
+                <td><a href="Work.html?view=${encodeURIComponent(install.id)}">${escapeText(install.job_number)}</a></td>
+                <td>${escapeText(install.job_name || '-')}</td>
+                <td>${escapeText(formatTrashDate(install.deleted_at))}</td>
+                <td>${TaskStore.hasPermission('tasks.restore')
+                  ? `<button class="s-restore" type="button" data-restore-install="${escapeText(install.id)}"><i class="bi bi-arrow-counterclockwise"></i> กู้คืน</button>`
+                  : '-'}</td>
+              </tr>
+            `).join('')
+          : '<tr><td colspan="4" class="s-trash-empty">ไม่มีงานหลักที่เก็บถาวร</td></tr>';
+      }
+      if (installSummary) installSummary.textContent = `มีงานหลักที่เก็บถาวร ${installs.length} งาน • รายการและประวัติยังคงอยู่`;
       if (count) {
-        count.textContent = String(tasks.length);
-        count.hidden = tasks.length === 0;
+        count.textContent = String(tasks.length + installs.length);
+        count.hidden = tasks.length + installs.length === 0;
       }
     } catch (error) {
       list.innerHTML = `<tr><td colspan="6" class="text-danger">${escapeText(error.message || 'โหลดถังขยะไม่สำเร็จ')}</td></tr>`;
       if (summary) summary.textContent = error.message || 'โหลดถังขยะไม่สำเร็จ';
+      const installList = document.getElementById('trashInstallList');
+      if (installList) installList.innerHTML = `<tr><td colspan="4" class="text-danger">${escapeText(error.message || 'โหลดงานที่เก็บถาวรไม่สำเร็จ')}</td></tr>`;
     }
   };
 
@@ -813,7 +885,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const backButton = document.getElementById('backToTasks');
     const trashList = document.getElementById('trashTaskList');
     if (!trashLink || !backButton || !trashList) return;
-
     trashLink.addEventListener('click', event => {
       event.preventDefault();
       selectedTaskIds.clear();
@@ -836,6 +907,25 @@ document.addEventListener('DOMContentLoaded', function () {
       } catch (error) {
         await AppDialogs.alert(error.message || 'กู้คืนงานไม่สำเร็จ', {
           title: 'กู้คืนงานไม่สำเร็จ',
+          tone: 'danger'
+        });
+        button.disabled = false;
+      }
+    });
+    document.getElementById('trashInstallList')?.addEventListener('click', async event => {
+      const button = event.target.closest('[data-restore-install]');
+      if (!button) return;
+      if (!await AppDialogs.confirm('ยืนยันกู้คืนงานหลักนี้หรือไม่? รายการที่ลบแยกไว้จะยังคงอยู่ในถังขยะ', {
+        title: 'กู้คืนงานหลัก',
+        confirmText: 'กู้คืนงาน'
+      })) return;
+      button.disabled = true;
+      try {
+        await TaskStore.restoreInstall(button.dataset.restoreInstall);
+        await Promise.all([loadTrash(), showTasks()]);
+      } catch (error) {
+        await AppDialogs.alert(error.message || 'กู้คืนงานหลักไม่สำเร็จ', {
+          title: 'กู้คืนไม่สำเร็จ',
           tone: 'danger'
         });
         button.disabled = false;
@@ -881,7 +971,11 @@ document.addEventListener('DOMContentLoaded', function () {
     let technicians;
     let assistants;
     try {
-      [tasks, technicians, assistants] = await Promise.all([refreshTasks(), getTechnicians(), getAssistants()]);
+      [tasks, technicians, assistants] = await Promise.all([
+        refreshTasks(),
+        MVP_READ_ONLY ? Promise.resolve([]) : getTechnicians(),
+        MVP_READ_ONLY ? Promise.resolve([]) : getAssistants()
+      ]);
     } catch (error) {
       showTaskError(error);
       return;
@@ -904,7 +998,9 @@ document.addEventListener('DOMContentLoaded', function () {
       ].some(value => String(value || '').toLocaleLowerCase().includes(taskSearchQuery)));
     }
     const addTaskButton = document.querySelector('.s-tools .s-add');
-    if (addTaskButton) addTaskButton.hidden = !TaskStore.hasPermission('tasks.create');
+    if (addTaskButton) {
+      addTaskButton.hidden = !TaskStore.hasPermission('tasks.create') || !TaskStore.supportsJobCreation;
+    }
     if (sortOrder === 'week' || sortOrder === 'month') {
       const days = sortOrder === 'week' ? 7 : 30;
       const startDate = new Date();
@@ -928,10 +1024,16 @@ document.addEventListener('DOMContentLoaded', function () {
       const canChangeStatus = technicianAssigned && TaskStore.hasPermission('tasks.change_status');
       const isSelected = selectedTaskIds.has(String(task.id));
       return `
-      <tr data-task-row="${escapeText(task.id)}" class="${isSelected ? 'is-selected' : ''}" tabindex="0" aria-selected="${isSelected}" aria-label="เลือกงาน ${escapeText(task.taskId || task.id)}">
-        <td>${TaskStore.hasPermission('tasks.edit') || TaskStore.hasPermission('tasks.delete')
-          ? `<button class="task-select-button" type="button" data-select-task="${escapeText(task.id)}" aria-label="${isSelected ? 'ยกเลิกเลือก' : 'เลือก'}งาน ${escapeText(task.taskId || task.id)}" aria-pressed="${isSelected}"><i class="bi ${isSelected ? 'bi-check2-circle' : 'bi-circle'}" aria-hidden="true"></i></button>`
-          : ''}</td>
+      <tr data-task-row="${escapeText(task.id)}" class="${isSelected ? 'is-selected' : ''}" ${!MVP_READ_ONLY && TaskStore.supportsBulkOperations ? `tabindex="0" aria-selected="${isSelected}" aria-label="เลือกงาน ${escapeText(task.taskId || task.id)}"` : ''}>
+        <td>
+          <a class="task-select-button" href="Work.html?view=${encodeURIComponent(String(task.installId))}" aria-label="ดูงาน ${escapeText(task.taskId || task.id)}"><i class="bi bi-eye" aria-hidden="true"></i></a>
+          ${TaskStore.hasPermission('tasks.edit')
+            ? `<a class="task-select-button" href="Work.html?editInstall=${encodeURIComponent(String(task.installId))}" aria-label="แก้ไขงานหลัก ${escapeText(task.taskId || task.id)}"><i class="bi bi-pencil" aria-hidden="true"></i></a>`
+            : ''}
+          ${TaskStore.supportsBulkOperations
+            && (TaskStore.hasPermission('tasks.edit') || TaskStore.hasPermission('tasks.delete'))
+            ? `<button class="task-select-button" type="button" data-select-task="${escapeText(task.id)}" aria-label="${isSelected ? 'ยกเลิกเลือก' : 'เลือก'}งาน ${escapeText(task.taskId || task.id)}" aria-pressed="${isSelected}"><i class="bi ${isSelected ? 'bi-check2-circle' : 'bi-circle'}" aria-hidden="true"></i></button>`
+            : ''}</td>
         <td>${escapeText(task.taskId || task.id)}</td>
         <td>${escapeText(task.department)}</td>
         <td>${escapeText(task.detail)}</td>
@@ -939,27 +1041,25 @@ document.addEventListener('DOMContentLoaded', function () {
         <td>${escapeText(task.date)}</td>
         <td>${escapeText(task.dueAt || '-')}</td>
         <td>
-          ${TaskStore.hasPermission('tasks.edit')
+          ${!MVP_READ_ONLY && TaskStore.hasPermission('tasks.assign')
             ? `<select class="technician-select" data-technician-id="${escapeText(task.id)}" aria-label="เลือกช่างที่รับผิดชอบสำหรับงาน ${escapeText(task.taskId || task.id)}">
                 <option value="">ยังไม่มอบหมาย</option>
                 ${task.technician && !technicians.some(technician => technician.name === task.technician)
                   ? `<option value="legacy" selected>${escapeText(task.technician)} (เดิม)</option>`
                   : ''}
-                ${technicians.map(technician => `<option value="${escapeText(technician.id)}" ${technician.name === task.technician ? 'selected' : ''}>${escapeText(technician.name)}${technician.role === 'head_technician' ? ' (หัวหน้าช่าง)' : ''}</option>`).join('')}
+                ${technicians.map(technician => `<option value="${escapeText(technician.id)}" ${technician.name === task.technician ? 'selected' : ''}>${escapeText(technician.name)}</option>`).join('')}
               </select>`
             : escapeText(task.technician || '-')}
         </td>
         <td>
-          ${TaskStore.hasPermission('tasks.edit')
+          ${!MVP_READ_ONLY && TaskStore.hasPermission('tasks.assign')
             ? `<select class="technician-select" data-assistant-id="${escapeText(task.id)}" aria-label="เลือกช่างที่ช่วยเหลือสำหรับงาน ${escapeText(task.taskId || task.id)}">
                 <option value="">ไม่มีช่างช่วยเหลือ</option>
                 ${task.installationAssistant && !assistants.some(assistant => assistant.name === task.installationAssistant)
                   ? `<option value="legacy" selected>${escapeText(task.installationAssistant)} (เดิม)</option>`
                   : ''}
                 ${assistants.map(assistant => {
-                  const roleLabel = assistant.role === 'head_technician'
-                    ? ' (หัวหน้าช่าง)'
-                    : assistant.role === 'intern' ? ' (นักศึกษาฝึกงาน)' : '';
+                  const roleLabel = assistant.role === 'intern' ? ' (นักศึกษาฝึกงาน)' : '';
                   return `<option value="${escapeText(assistant.id)}" ${assistant.name === task.installationAssistant ? 'selected' : ''}>${escapeText(assistant.name)}${roleLabel}</option>`;
                 }).join('')}
               </select>`
@@ -968,14 +1068,16 @@ document.addEventListener('DOMContentLoaded', function () {
         <td>
           <div class="status-control status-${escapeText(task.status || 'waiting')}">
             <span class="status-label" data-status-label translate="no">${escapeText(statusNames[task.status] || statusNames.waiting)}</span>
-            <select class="status ${escapeText(task.status || 'waiting')}" data-status-id="${escapeText(task.id)}" aria-label="สถานะงาน ${escapeText(task.taskId || task.id)}" ${canChangeStatus ? '' : 'disabled'}>
+            ${MVP_READ_ONLY
+              ? ''
+              : `<select class="status ${escapeText(task.status || 'waiting')}" data-status-id="${escapeText(task.id)}" aria-label="สถานะงาน ${escapeText(task.taskId || task.id)}" ${canChangeStatus ? '' : 'disabled'}>
               ${statusOptions(task.status)}
-            </select>
+            </select>`}
           </div>
           ${technicianAssigned ? '' : '<small class="status-requirement">มอบหมายช่างก่อนเปลี่ยนสถานะ</small>'}
         </td>
         <td>${task.status === 'done'
-          ? '<a class="s-report-link" href="https://forms.office.com/Pages/ResponsePage.aspx?id=2uUTEl7hvEuifzF4LivwD51sBwGMfQNOgirdMyiL2txUQ1FYSDBOSFA4VzY1SlU4TTM3TUhWQVZUTC4u&amp;origin=QRCode">Report <i class="bi bi-box-arrow-up-right"></i></a>'
+          ? `<a class="s-report-link" href="Report.html?taskId=${encodeURIComponent(String(task.id))}">Report <i class="bi bi-box-arrow-up-right"></i></a>`
           : '<span class="s-report-unavailable">-</span>'}</td>
       </tr>
     `;
@@ -987,9 +1089,11 @@ document.addEventListener('DOMContentLoaded', function () {
     const deleteSelectedButton = document.getElementById('deleteSelectedTasks');
     const canEditTasks = TaskStore.hasPermission('tasks.edit');
     const canDeleteTasks = TaskStore.hasPermission('tasks.delete');
-    if (selectionActions) selectionActions.hidden = selectedTaskIds.size === 0 || (!canEditTasks && !canDeleteTasks);
-    if (openBulkEditButton) openBulkEditButton.hidden = !canEditTasks;
-    if (deleteSelectedButton) deleteSelectedButton.hidden = !canDeleteTasks;
+    if (selectionActions) selectionActions.hidden = !TaskStore.supportsBulkOperations
+      || selectedTaskIds.size === 0
+      || (!canEditTasks && !canDeleteTasks);
+    if (openBulkEditButton) openBulkEditButton.hidden = !TaskStore.supportsBulkOperations || !canEditTasks;
+    if (deleteSelectedButton) deleteSelectedButton.hidden = !TaskStore.supportsBulkOperations || !canDeleteTasks;
 
     const total = tasks.length;
     const waiting = tasks.filter(task => task.status === 'waiting').length;
@@ -1111,6 +1215,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const cancelButton = document.getElementById('cancelStatus');
     const errorMessage = document.getElementById('statusError');
     if (!dialog || !form || !cancelButton || !errorMessage) return;
+    if (MVP_READ_ONLY) {
+      dialog.hidden = true;
+      return;
+    }
 
     const closeDialog = () => {
       dialog.hidden = true;
@@ -1140,137 +1248,13 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   };
 
-  // เตรียมฟอร์มงานโดยใช้ชื่อผู้แจ้งจากโปรไฟล์
-  const prepareTaskForm = async () => {
-    const form = document.getElementById('taskForm');
-    if (!form) return;
-
-    const editId = new URLSearchParams(window.location.search).get('edit');
-    const submitButton = form.querySelector('[type="submit"]');
-    const requesterName = document.getElementById('department');
-    const currentUser = AppAuth.getCurrentUser();
-    const profileName = `${currentUser?.firstName || ''} ${currentUser?.lastName || ''}`.trim();
-
-    if (requesterName) {
-      requesterName.value = profileName;
-      if (!profileName) {
-        const message = document.getElementById('taskFormMessage');
-        if (message) message.textContent = 'ไม่พบชื่อในโปรไฟล์ กรุณากรอกชื่อและนามสกุลในหน้าโปรไฟล์ก่อน';
-        submitButton.disabled = true;
-        return;
-      }
-    }
-
-    try {
-      const permissions = await TaskStore.getPermissions();
-      const requiredPermission = editId ? 'tasks.edit' : 'tasks.create';
-      if (!permissions[requiredPermission]) {
-        submitButton.disabled = true;
-        const message = document.getElementById('taskFormMessage');
-        if (message) message.textContent = 'Role ของคุณไม่มีสิทธิ์บันทึกงานประเภทนี้';
-        return;
-      }
-    } catch (error) {
-      showTaskError(error);
-      submitButton.disabled = true;
-      return;
-    }
-
-    const dateInput = document.getElementById('date');
-    const dueAtInput = document.getElementById('dueAt');
-    if (dateInput && !dateInput.value) {
-      dateInput.value = new Date().toISOString().slice(0, 10);
-    }
-    if (dateInput && dueAtInput) {
-      dueAtInput.min = dateInput.value;
-      dateInput.addEventListener('change', () => {
-        dueAtInput.min = dateInput.value;
-      });
-    }
-
-    let oldTask = null;
-    if (editId) {
-      submitButton.disabled = true;
-      refreshTasks().then(tasks => {
-        oldTask = tasks.find(task => String(task.id) === editId) || null;
-        if (!oldTask) {
-          showTaskError(new Error('ไม่พบรายการงานที่ต้องการแก้ไข'));
-          return;
-        }
-        document.getElementById('formTitle').textContent = 'แก้ไขงาน';
-        document.getElementById('saveButton').textContent = 'บันทึกการแก้ไข';
-        document.getElementById('taskId').value = oldTask.taskId || oldTask.id;
-        document.getElementById('assetIdentifiers').value = oldTask.assetIdentifier || '';
-        if (requesterName) requesterName.value = oldTask.department || profileName;
-        document.getElementById('date').value = oldTask.date || '';
-        if (dueAtInput) {
-          dueAtInput.value = oldTask.dueAt || '';
-          dueAtInput.min = oldTask.date || '';
-        }
-        document.getElementById('detail').value = oldTask.detail || '';
-        submitButton.disabled = false;
-      }).catch(showTaskError);
-    }
-
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-      if (editId && !oldTask) return;
-      submitButton.disabled = true;
-      const formData = new FormData(form);
-      const assetIdentifiers = String(formData.get('assetIdentifiers') || '')
-        .split(/\r?\n/)
-        .map(identifier => identifier.trim())
-        .filter(Boolean);
-      if (editId && assetIdentifiers.length > 1) {
-        const message = document.getElementById('taskFormMessage');
-        if (message) message.textContent = 'การแก้ไขงานรองรับหมายเลขเครื่องได้ครั้งละ 1 รายการ';
-        submitButton.disabled = false;
-        return;
-      }
-      const task = {
-        id: editId,
-        taskId: formData.get('taskId'),
-        assetIdentifier: assetIdentifiers[0] || '',
-        department: formData.get('department'),
-        detail: formData.get('detail'),
-        date: formData.get('date'),
-        dueAt: formData.get('dueAt'),
-        owner: oldTask?.owner || oldTask?.assignee || '',
-        installationAssistant: oldTask?.installationAssistant || '',
-        priority: oldTask?.priority || 'medium',
-        createdAt: oldTask?.createdAt || new Date().toISOString()
-      };
-      if (!editId) task.assetIdentifiers = assetIdentifiers;
-
-      if (editId && !await AppDialogs.confirm('ยืนยันบันทึกการแก้ไขงานนี้หรือไม่?', {
-        title: 'ยืนยันแก้ไขงาน',
-        confirmText: 'บันทึกการแก้ไข'
-      })) {
-        submitButton.disabled = false;
-        return;
-      }
-
-      try {
-        if (editId) {
-          await TaskStore.update(task);
-        } else {
-          await TaskStore.create(task);
-        }
-        window.location.href = 'services.html';
-      } catch (error) {
-        showTaskError(error);
-        submitButton.disabled = false;
-      }
-    });
-  };
-
   setupAccount();
   setupTaskMenu();
   setupTrashView();
   setupInstallControls();
   setupBulkEdit();
   showTasks();
-  prepareTaskForm();
+  initializeWorkManagement();
   prepareStatusForm();
   loadNotifications();
   window.setInterval(() => {

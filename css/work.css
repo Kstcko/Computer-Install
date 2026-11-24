@@ -6,7 +6,7 @@
 }
 
 .work-wrap {
-  width: min(100% - 2rem, 720px);
+  width: min(100% - 2rem, 960px);
   margin: 0 auto;
   padding: 3rem 0;
 }
@@ -46,6 +46,56 @@
   box-shadow: var(--n-shadow-sm);
 }
 
+.work-form[hidden] {
+  display: none;
+}
+
+.work-form h2,
+.work-items-head h2 {
+  margin: 0;
+  color: var(--n-navy);
+  font-size: 1.15rem;
+}
+
+.work-form > section + section {
+  margin-top: 1.5rem;
+}
+
+.work-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+
+.work-detail-grid > div {
+  min-width: 0;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--n-border);
+}
+
+.work-detail-grid dt {
+  margin-bottom: .25rem;
+  color: var(--n-slate);
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.work-detail-grid dd {
+  margin: 0;
+  color: var(--n-navy);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.work-items-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.5rem 0 1rem;
+}
+
 .work-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -82,6 +132,151 @@
 .work-field textarea {
   min-height: 120px;
   resize: vertical;
+}
+
+.work-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .85rem 1rem;
+  border: 1px solid #d6e2ff;
+  border-radius: var(--n-radius-sm);
+  color: #1849a9;
+  background: #f5f8ff;
+  overflow-wrap: anywhere;
+}
+
+.work-summary a {
+  flex: 0 0 auto;
+  color: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+}
+
+.work-item-editor {
+  min-width: 0;
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid var(--n-border);
+  border-radius: var(--n-radius-sm);
+}
+
+.work-item-editor legend {
+  padding: 0 .4rem;
+  color: var(--n-navy);
+  font-weight: 700;
+}
+
+.work-item-remove {
+  display: block;
+  margin: 0 0 .75rem auto;
+  padding: .4rem .65rem;
+  border: 1px solid #fecdca;
+  border-radius: var(--n-radius-sm);
+  color: #b42318;
+  background: #fff;
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+}
+
+.work-item-remove[hidden] {
+  display: none;
+}
+
+.work-items-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.work-item-card {
+  min-width: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--n-border);
+  border-radius: var(--n-radius-sm);
+  background: #fff;
+}
+
+.work-item-card > header,
+.work-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.work-item-card h3 {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
+.work-status {
+  flex: 0 0 auto;
+  padding: .25rem .55rem;
+  border-radius: 999px;
+  color: #344054;
+  background: #f2f4f7;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.work-status.status-progress {
+  color: #175cd3;
+  background: #eff8ff;
+}
+
+.work-status.status-done {
+  color: #027a48;
+  background: #ecfdf3;
+}
+
+.work-item-details {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem 1rem;
+  margin: 1rem 0;
+}
+
+.work-item-details > div {
+  min-width: 0;
+}
+
+.work-item-details dt {
+  color: var(--n-slate);
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+.work-item-details dd {
+  margin: .15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.work-item-description {
+  margin: 0;
+  padding-top: .75rem;
+  border-top: 1px solid var(--n-border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.work-item-actions {
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.work-item-deleted,
+.work-items-empty {
+  margin: 1rem 0 0;
+  color: var(--n-slate);
+}
+
+.work-item-deleted {
+  color: #b42318;
+  font-size: .85rem;
 }
 
 .work-field input:focus,
@@ -123,11 +318,35 @@
     gap: 0;
   }
 
+  .work-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .work-item-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .work-items-head,
+  .work-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .work-actions {
     flex-direction: column-reverse;
   }
 
   .work-actions .btn {
+    width: 100%;
+  }
+
+  .work-item-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .work-item-actions .btn,
+  .work-items-head .btn {
     width: 100%;
   }
 }

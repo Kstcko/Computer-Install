@@ -96,3 +96,5 @@
     })
   };
 })();
+
+export const AppDialogs = window.AppDialogs;

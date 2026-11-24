@@ -1,6 +1,9 @@
-document.addEventListener('DOMContentLoaded', async () => {
-  if (!AppAuth.requireProtectedPage()) return;
+import { getSupabaseClient } from '../src/supabase.js';
+import { MVP_READ_ONLY, MVP_READ_ONLY_MESSAGE } from '../src/mvp-mode.js';
+import { AppAuth } from './core/auth.js';
+import { TaskStore } from './tasks/task-store.js';
 
+document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('installReportForm');
   const taskSelect = document.getElementById('reportTask');
   const taskDetails = document.getElementById('reportTaskDetails');
@@ -13,30 +16,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   const successMessage = document.getElementById('reportSuccessMessage');
   const previewUrls = [];
 
-  const request = async (action, data = {}) => {
-    let response;
-    try {
-      response = await fetch('api/install_reports.php', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, ...data })
-      });
-    } catch (error) {
-      throw new Error('เชื่อมต่อระบบ Report ไม่ได้ กรุณาตรวจสอบเซิร์ฟเวอร์และลองใหม่');
-    }
+  try {
+    if (!await AppAuth.requireProtectedPage()) return;
+  } catch (error) {
+    message.textContent = error.message || 'ตรวจสอบการเข้าสู่ระบบไม่สำเร็จ';
+    return;
+  }
 
-    let result;
-    try {
-      result = await response.json();
-    } catch (error) {
-      throw new Error('เซิร์ฟเวอร์ส่งข้อมูล Report ไม่ถูกต้อง');
+  if (MVP_READ_ONLY) {
+    form.hidden = true;
+    const notice = document.getElementById('reportReadOnlyNotice');
+    if (notice) {
+      notice.hidden = false;
+      notice.textContent = `${MVP_READ_ONLY_MESSAGE}: การส่ง Report และอัปโหลดรูปภาพยังไม่เปิดใช้งาน`;
     }
-    if (!response.ok) {
-      throw new Error(result.message || 'ดำเนินการ Report ไม่สำเร็จ');
-    }
-    return result;
-  };
+    return;
+  }
 
   const updateTaskDetails = tasks => {
     const task = tasks.find(item => String(item.id) === taskSelect.value);
@@ -72,13 +67,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     canvas.toBlob(resolve, 'image/jpeg', quality);
   });
 
-  const readAsDataUrl = blob => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.addEventListener('load', () => resolve(String(reader.result)));
-    reader.addEventListener('error', () => reject(new Error('อ่านรูปภาพไม่สำเร็จ')));
-    reader.readAsDataURL(blob);
-  });
-
   const compressPhoto = async file => {
     const imageUrl = URL.createObjectURL(file);
     try {
@@ -111,7 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!blob || blob.size > 800000) {
         throw new Error('รูปภาพมีขนาดใหญ่เกินไปหลังปรับขนาด');
       }
-      return readAsDataUrl(blob);
+      return blob;
     } finally {
       URL.revokeObjectURL(imageUrl);
     }
@@ -151,22 +139,44 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     submitButton.disabled = true;
     message.textContent = 'กำลังปรับขนาดและบันทึกรูปภาพ...';
+    let uploadedCount = 0;
     try {
       const photos = await Promise.all(files.map(compressPhoto));
-      const result = await request('submit', {
-        taskId: taskSelect.value,
-        specificationsChecked: document.getElementById('specificationsChecked').checked,
-        neatnessChecked: document.getElementById('neatnessChecked').checked,
-        warrantySealApplied: document.getElementById('warrantySealApplied').checked,
-        computerType: document.getElementById('computerType').value.trim(),
-        brand: document.getElementById('computerBrand').value.trim(),
-        photos
+      const storage = getSupabaseClient().storage.from('install-report-photos');
+      const uploadedPaths = [];
+      for (const photo of photos) {
+        const path = `${taskSelect.value}/${crypto.randomUUID()}.jpg`;
+        const { error } = await storage.upload(path, photo, {
+          contentType: 'image/jpeg',
+          upsert: false
+        });
+        if (error) throw error;
+        uploadedPaths.push(path);
+        uploadedCount += 1;
+      }
+
+      const { error } = await getSupabaseClient().rpc('submit_install_report', {
+        p_item_id: taskSelect.value,
+        p_computer_type: document.getElementById('computerType').value.trim(),
+        p_brand: document.getElementById('computerBrand').value.trim(),
+        p_specifications_checked: document.getElementById('specificationsChecked').checked,
+        p_neatness_checked: document.getElementById('neatnessChecked').checked,
+        p_warranty_seal_applied: document.getElementById('warrantySealApplied').checked,
+        p_photo_paths: uploadedPaths
       });
+      if (error) {
+        throw error;
+      }
+
+      const submittedTask = eligibleTasks.find(task => task.id === taskSelect.value);
       form.hidden = true;
-      successMessage.textContent = `งาน ${result.jobNumber} ถูกบันทึกพร้อมรูปภาพแล้ว`;
+      successMessage.textContent = `งาน ${submittedTask?.taskId || ''} ถูกบันทึกพร้อมรูปภาพแล้ว`;
       successPanel.hidden = false;
     } catch (error) {
-      message.textContent = error.message || 'บันทึก Report ไม่สำเร็จ กรุณาลองใหม่';
+      const cleanupWarning = uploadedCount
+        ? ' รูปที่อัปโหลดแล้วอาจยังอยู่ใน Private Storage และต้องให้ผู้ดูแลตรวจสอบ'
+        : '';
+      message.textContent = `${error.message || 'บันทึก Report ไม่สำเร็จ กรุณาลองใหม่'}${cleanupWarning}`;
       submitButton.disabled = false;
     }
   });
@@ -176,9 +186,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   form.hidden = false;
   submitButton.disabled = true;
   try {
-    const result = await request('tasks');
-    if (!Array.isArray(result.tasks)) throw new Error('ข้อมูลรายการงานสำหรับ Report ไม่ถูกต้อง');
-    eligibleTasks = result.tasks;
+    const [tasks, { data: reports, error: reportsError }] = await Promise.all([
+      TaskStore.getAll(),
+      getSupabaseClient().from('install_reports').select('install_item_id')
+    ]);
+    if (reportsError) throw reportsError;
+    const reportedTaskIds = new Set((reports || []).map(report => report.install_item_id));
+    eligibleTasks = tasks.filter(task =>
+      task.status === 'done'
+      && task.technician
+      && !reportedTaskIds.has(task.id)
+    );
     taskSelect.replaceChildren(new Option('เลือกงานที่ติดตั้งเสร็จแล้ว', ''));
     eligibleTasks.forEach(task => {
       const option = new Option(
