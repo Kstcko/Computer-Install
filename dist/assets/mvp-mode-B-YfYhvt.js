@@ -1,0 +1,1 @@
+var e=`ฟังก์ชันนี้ปิดไว้ชั่วคราวใน Read-only MVP`;function t(){}function n(){throw Error(e)}export{n,t as r,e as t};
